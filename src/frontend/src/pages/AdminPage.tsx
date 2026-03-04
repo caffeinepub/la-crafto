@@ -38,12 +38,25 @@ import {
   useAllOrders,
   useContactMessages,
   useDeleteProduct,
-  useIsAdmin,
   useProducts,
   useSeedProducts,
   useUpdateProduct,
 } from "@/hooks/useQueries";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+// Local hook that checks admin status as soon as the actor exists,
+// without waiting for the actor's own fetch to complete.
+function useAdminStatus() {
+  const { actor } = useActor();
+  return useQuery<boolean>({
+    queryKey: ["isAdmin"],
+    queryFn: async () => {
+      if (!actor) return false;
+      return actor.isCallerAdmin();
+    },
+    enabled: !!actor,
+  });
+}
 import {
   CheckCircle2,
   CreditCard,
@@ -54,11 +67,10 @@ import {
   Package,
   PlusCircle,
   ShieldAlert,
-  ShieldX,
   ShoppingCart,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -1073,40 +1085,40 @@ function StatsPanel() {
 }
 
 export function AdminPage() {
-  const { data: isAdmin, isLoading: adminLoading } = useIsAdmin();
+  const { data: isAdmin, isLoading: adminLoading } = useAdminStatus();
   const { mutate: seedProducts, isPending: seeding } = useSeedProducts();
   const { identity, login, isLoggingIn } = useInternetIdentity();
-  const { actor, isFetching: actorFetching } = useActor();
+  useActor(); // ensure actor is initialized
   const queryClient = useQueryClient();
-  const [claimFailed, setClaimFailed] = useState(false);
+
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenError, setTokenError] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const isLoggedIn = !!identity && !identity.getPrincipal().isAnonymous();
-
-  // Auto-claim admin on first login
-  useEffect(() => {
-    if (
-      isLoggedIn &&
-      isAdmin === false &&
-      actor &&
-      !adminLoading &&
-      !actorFetching
-    ) {
-      actor
-        ._initializeAccessControlWithSecret("")
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["isAdmin"] });
-        })
-        .catch(() => {
-          setClaimFailed(true);
-        });
-    }
-  }, [isLoggedIn, isAdmin, actor, adminLoading, actorFetching, queryClient]);
 
   function handleSeed() {
     seedProducts(undefined, {
       onSuccess: () => toast.success("Products seeded successfully!"),
       onError: () => toast.error("Failed to seed products."),
     });
+  }
+
+  async function handleTokenSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tokenInput.trim()) {
+      setTokenError("Please enter the admin token.");
+      return;
+    }
+    setTokenError("");
+    setIsVerifying(true);
+
+    // Reload the page with the token in the URL so useActor picks it up
+    const url = new URL(window.location.href);
+    url.searchParams.set("caffeineAdminToken", tokenInput.trim());
+    // Invalidate actor cache so it re-initializes with the new token
+    await queryClient.invalidateQueries({ queryKey: ["actor"] });
+    window.location.href = url.toString();
   }
 
   if (adminLoading) {
@@ -1170,62 +1182,84 @@ export function AdminPage() {
   }
 
   if (!isAdmin) {
-    // If claim attempt failed, someone else is already the admin
-    if (claimFailed) {
-      return (
-        <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
-          <div
-            className="text-center p-10 rounded-sm max-w-sm w-full"
-            style={{
-              border: "1px solid oklch(var(--destructive) / 0.3)",
-              background: "oklch(var(--card))",
-            }}
-            data-ocid="admin.access_denied.panel"
-          >
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
-              style={{ background: "oklch(var(--destructive) / 0.1)" }}
-            >
-              <ShieldX
-                className="w-7 h-7"
-                style={{ color: "oklch(var(--destructive))" }}
-              />
-            </div>
-            <h2 className="font-serif text-2xl font-bold text-foreground mb-2">
-              Access Denied
-            </h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              This admin panel is already claimed by another account.
-            </p>
-            <p
-              className="text-xs font-mono px-3 py-2 rounded-sm break-all"
-              style={{
-                background: "oklch(var(--muted))",
-                color: "oklch(var(--muted-foreground))",
-                border: "1px solid oklch(var(--border))",
-              }}
-              data-ocid="admin.access_denied.panel"
-            >
-              {identity?.getPrincipal().toString()}
-            </p>
-          </div>
-        </main>
-      );
-    }
-
-    // Auto-claiming in progress — show spinner
     return (
-      <main
-        className="pt-32 pb-20 px-6 min-h-screen bg-background flex flex-col items-center justify-center gap-4"
-        data-ocid="admin.claiming.loading_state"
-      >
-        <Loader2
-          className="w-8 h-8 animate-spin"
-          style={{ color: "oklch(var(--gold))" }}
-        />
-        <p className="text-sm text-muted-foreground">
-          Setting up admin access…
-        </p>
+      <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
+        <div
+          className="p-10 rounded-sm max-w-sm w-full"
+          style={{
+            border: "1px solid oklch(var(--gold) / 0.3)",
+            background: "oklch(var(--card))",
+          }}
+          data-ocid="admin.token_panel"
+        >
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
+            style={{ background: "oklch(var(--gold) / 0.1)" }}
+          >
+            <KeyRound
+              className="w-7 h-7"
+              style={{ color: "oklch(var(--gold))" }}
+            />
+          </div>
+          <h2 className="font-serif text-2xl font-bold text-foreground mb-2 text-center">
+            Admin Token Required
+          </h2>
+          <p className="text-sm text-muted-foreground mb-6 text-center">
+            Enter your admin token to access the dashboard. You can find this
+            token in your Caffeine project settings.
+          </p>
+          <form onSubmit={handleTokenSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Input
+                type="password"
+                data-ocid="admin.token.input"
+                value={tokenInput}
+                onChange={(e) => {
+                  setTokenInput(e.target.value);
+                  setTokenError("");
+                }}
+                placeholder="Paste your admin token here"
+                autoComplete="off"
+                style={{
+                  background: "oklch(var(--input))",
+                  border: tokenError
+                    ? "1px solid oklch(var(--destructive))"
+                    : "1px solid oklch(var(--border))",
+                }}
+              />
+              {tokenError && (
+                <p
+                  className="text-xs"
+                  style={{ color: "oklch(var(--destructive))" }}
+                  data-ocid="admin.token.error_state"
+                >
+                  {tokenError}
+                </p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              data-ocid="admin.token.submit_button"
+              disabled={isVerifying}
+              className="w-full text-white font-semibold"
+              style={{ background: "oklch(var(--monk-maroon))" }}
+            >
+              {isVerifying ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Access Admin Panel"
+              )}
+            </Button>
+          </form>
+          <p className="text-xs text-muted-foreground mt-4 text-center">
+            Find your token in the Caffeine dashboard under your project's
+            environment variables as{" "}
+            <span className="font-mono">CAFFEINE_ADMIN_TOKEN</span>.
+          </p>
+        </div>
       </main>
     );
   }
