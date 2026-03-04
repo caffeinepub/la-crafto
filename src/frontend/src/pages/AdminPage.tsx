@@ -31,6 +31,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useActor } from "@/hooks/useActor";
 import { useInternetIdentity } from "@/hooks/useInternetIdentity";
 import {
   useAddProduct,
@@ -42,16 +43,22 @@ import {
   useSeedProducts,
   useUpdateProduct,
 } from "@/hooks/useQueries";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckCircle2,
+  CreditCard,
   Edit2,
   KeyRound,
   Loader2,
+  MessageSquare,
   Package,
   PlusCircle,
+  ShieldAlert,
   ShieldX,
+  ShoppingCart,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -827,10 +834,273 @@ function MessagesTab() {
   );
 }
 
+function StripeConfigTab() {
+  const { actor, isFetching } = useActor();
+  const { data: isConfigured, isLoading: configLoading } = useQuery<boolean>({
+    queryKey: ["stripeConfigured"],
+    queryFn: async () => {
+      if (!actor) return false;
+      return actor.isStripeConfigured();
+    },
+    enabled: !!actor && !isFetching,
+  });
+
+  const [secretKey, setSecretKey] = useState("");
+  const [countries, setCountries] = useState("IN, US, GB, AU, CA");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!actor) {
+      toast.error("Actor not ready. Please try again.");
+      return;
+    }
+    if (!secretKey.trim()) {
+      toast.error("Please enter a Stripe secret key.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const allowedCountries = countries
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await actor.setStripeConfiguration({
+        secretKey: secretKey.trim(),
+        allowedCountries,
+      });
+      toast.success("Stripe configuration saved successfully.");
+      setSecretKey("");
+    } catch {
+      toast.error("Failed to save Stripe configuration.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="max-w-lg">
+      <div className="flex items-center gap-2 mb-6">
+        <CreditCard
+          className="w-5 h-5"
+          style={{ color: "oklch(var(--gold))" }}
+        />
+        <span className="font-serif text-lg font-semibold text-foreground">
+          Stripe Configuration
+        </span>
+      </div>
+
+      {/* Status banner */}
+      {configLoading ? (
+        <Skeleton className="h-12 w-full rounded-sm mb-6" />
+      ) : isConfigured ? (
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-sm mb-6"
+          style={{
+            background: "oklch(55% 0.15 145 / 0.1)",
+            border: "1px solid oklch(55% 0.15 145 / 0.3)",
+          }}
+          data-ocid="admin.stripe.success_state"
+        >
+          <CheckCircle2
+            className="w-4 h-4 flex-shrink-0"
+            style={{ color: "oklch(40% 0.15 145)" }}
+          />
+          <p
+            className="text-sm font-medium"
+            style={{ color: "oklch(35% 0.15 145)" }}
+          >
+            Stripe is configured and ready to accept payments.
+          </p>
+        </div>
+      ) : (
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-sm mb-6"
+          style={{
+            background: "oklch(75% 0.14 85 / 0.1)",
+            border: "1px solid oklch(75% 0.14 85 / 0.4)",
+          }}
+          data-ocid="admin.stripe.error_state"
+        >
+          <ShieldAlert
+            className="w-4 h-4 flex-shrink-0"
+            style={{ color: "oklch(50% 0.16 65)" }}
+          />
+          <p
+            className="text-sm font-medium"
+            style={{ color: "oklch(40% 0.1 65)" }}
+          >
+            Stripe is not configured. Add your secret key to enable payments.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Secret key */}
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="stripe-secret"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            Stripe Secret Key *
+          </Label>
+          <Input
+            id="stripe-secret"
+            type="password"
+            data-ocid="admin.stripe.secretkey.input"
+            value={secretKey}
+            onChange={(e) => setSecretKey(e.target.value)}
+            placeholder="sk_live_… or sk_test_…"
+            autoComplete="off"
+            required
+            style={{
+              background: "oklch(var(--input))",
+              border: "1px solid oklch(var(--border))",
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            Your Stripe secret key from the Stripe Dashboard. Keep this secure.
+          </p>
+        </div>
+
+        {/* Allowed countries */}
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="stripe-countries"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            Allowed Countries
+          </Label>
+          <Input
+            id="stripe-countries"
+            type="text"
+            data-ocid="admin.stripe.countries.input"
+            value={countries}
+            onChange={(e) => setCountries(e.target.value)}
+            placeholder="IN, US, GB, AU, CA"
+            style={{
+              background: "oklch(var(--input))",
+              border: "1px solid oklch(var(--border))",
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            Comma-separated ISO country codes for allowed shipping destinations.
+          </p>
+        </div>
+
+        <Button
+          type="submit"
+          data-ocid="admin.stripe.submit_button"
+          disabled={isSaving}
+          className="text-white font-semibold"
+          style={{ background: "oklch(var(--monk-maroon))" }}
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            "Save Stripe Configuration"
+          )}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+function StatsPanel() {
+  const { data: products } = useProducts();
+  const { data: orders } = useAllOrders();
+  const { data: messages } = useContactMessages();
+
+  const stats = [
+    {
+      label: "Products",
+      value: products?.length ?? 0,
+      icon: Package,
+      accent: "oklch(var(--gold))",
+      bg: "oklch(var(--gold) / 0.08)",
+    },
+    {
+      label: "Orders",
+      value: orders?.length ?? 0,
+      icon: ShoppingCart,
+      accent: "oklch(var(--monk-maroon))",
+      bg: "oklch(var(--monk-maroon) / 0.08)",
+    },
+    {
+      label: "Messages",
+      value: messages?.length ?? 0,
+      icon: MessageSquare,
+      accent: "oklch(var(--sky-blue))",
+      bg: "oklch(var(--sky-blue) / 0.08)",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 gap-4 mb-8" data-ocid="admin.stats.panel">
+      {stats.map((stat) => (
+        <div
+          key={stat.label}
+          className="rounded-sm px-5 py-4 flex items-center gap-4"
+          style={{
+            background: stat.bg,
+            border: `1px solid ${stat.accent.replace(")", " / 0.2)")}`,
+          }}
+        >
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: stat.bg }}
+          >
+            <stat.icon className="w-5 h-5" style={{ color: stat.accent }} />
+          </div>
+          <div>
+            <p
+              className="font-serif text-2xl font-bold leading-none"
+              style={{ color: stat.accent }}
+            >
+              {stat.value}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5 uppercase tracking-wider">
+              {stat.label}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function AdminPage() {
   const { data: isAdmin, isLoading: adminLoading } = useIsAdmin();
   const { mutate: seedProducts, isPending: seeding } = useSeedProducts();
   const { identity, login, isLoggingIn } = useInternetIdentity();
+  const { actor, isFetching: actorFetching } = useActor();
+  const queryClient = useQueryClient();
+  const [claimFailed, setClaimFailed] = useState(false);
+
+  const isLoggedIn = !!identity && !identity.getPrincipal().isAnonymous();
+
+  // Auto-claim admin on first login
+  useEffect(() => {
+    if (
+      isLoggedIn &&
+      isAdmin === false &&
+      actor &&
+      !adminLoading &&
+      !actorFetching
+    ) {
+      actor
+        ._initializeAccessControlWithSecret("")
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["isAdmin"] });
+        })
+        .catch(() => {
+          setClaimFailed(true);
+        });
+    }
+  }, [isLoggedIn, isAdmin, actor, adminLoading, actorFetching, queryClient]);
 
   function handleSeed() {
     seedProducts(undefined, {
@@ -838,8 +1108,6 @@ export function AdminPage() {
       onError: () => toast.error("Failed to seed products."),
     });
   }
-
-  const isLoggedIn = !!identity && !identity.getPrincipal().isAnonymous();
 
   if (adminLoading) {
     return (
@@ -902,27 +1170,62 @@ export function AdminPage() {
   }
 
   if (!isAdmin) {
+    // If claim attempt failed, someone else is already the admin
+    if (claimFailed) {
+      return (
+        <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
+          <div
+            className="text-center p-10 rounded-sm max-w-sm w-full"
+            style={{
+              border: "1px solid oklch(var(--destructive) / 0.3)",
+              background: "oklch(var(--card))",
+            }}
+            data-ocid="admin.access_denied.panel"
+          >
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
+              style={{ background: "oklch(var(--destructive) / 0.1)" }}
+            >
+              <ShieldX
+                className="w-7 h-7"
+                style={{ color: "oklch(var(--destructive))" }}
+              />
+            </div>
+            <h2 className="font-serif text-2xl font-bold text-foreground mb-2">
+              Access Denied
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              This admin panel is already claimed by another account.
+            </p>
+            <p
+              className="text-xs font-mono px-3 py-2 rounded-sm break-all"
+              style={{
+                background: "oklch(var(--muted))",
+                color: "oklch(var(--muted-foreground))",
+                border: "1px solid oklch(var(--border))",
+              }}
+              data-ocid="admin.access_denied.panel"
+            >
+              {identity?.getPrincipal().toString()}
+            </p>
+          </div>
+        </main>
+      );
+    }
+
+    // Auto-claiming in progress — show spinner
     return (
-      <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
-        <div
-          className="text-center p-10 rounded-sm"
-          style={{
-            border: "1px solid oklch(var(--destructive) / 0.3)",
-            background: "oklch(var(--card))",
-          }}
-          data-ocid="admin.error_state"
-        >
-          <ShieldX
-            className="w-12 h-12 mx-auto mb-4"
-            style={{ color: "oklch(var(--destructive))" }}
-          />
-          <h2 className="font-serif text-2xl font-bold text-foreground mb-2">
-            Access Denied
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            You don't have permission to access this area.
-          </p>
-        </div>
+      <main
+        className="pt-32 pb-20 px-6 min-h-screen bg-background flex flex-col items-center justify-center gap-4"
+        data-ocid="admin.claiming.loading_state"
+      >
+        <Loader2
+          className="w-8 h-8 animate-spin"
+          style={{ color: "oklch(var(--gold))" }}
+        />
+        <p className="text-sm text-muted-foreground">
+          Setting up admin access…
+        </p>
       </main>
     );
   }
@@ -962,6 +1265,9 @@ export function AdminPage() {
           </button>
         </div>
 
+        {/* Stats Panel */}
+        <StatsPanel />
+
         {/* Tabs */}
         <Tabs defaultValue="products">
           <TabsList
@@ -997,6 +1303,13 @@ export function AdminPage() {
             >
               Messages
             </TabsTrigger>
+            <TabsTrigger
+              value="stripe"
+              data-ocid="admin.stripe.tab"
+              className="text-sm font-medium px-5 py-2 rounded-sm data-[state=active]:text-white transition-all"
+            >
+              Stripe
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="products">
@@ -1009,6 +1322,10 @@ export function AdminPage() {
 
           <TabsContent value="messages">
             <MessagesTab />
+          </TabsContent>
+
+          <TabsContent value="stripe">
+            <StripeConfigTab />
           </TabsContent>
         </Tabs>
       </div>

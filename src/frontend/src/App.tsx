@@ -3,6 +3,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { CartProvider } from "@/context/CartContext";
 import { AboutPage } from "@/pages/AboutPage";
+import { AccountPage } from "@/pages/AccountPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { CartPage } from "@/pages/CartPage";
 import { CheckoutCancelPage } from "@/pages/CheckoutCancelPage";
@@ -111,6 +112,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+const accountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/account",
+  component: AccountPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   collectionsRoute,
@@ -122,6 +129,7 @@ const routeTree = rootRoute.addChildren([
   aboutRoute,
   contactRoute,
   adminRoute,
+  accountRoute,
 ]);
 
 const router = createRouter({ routeTree });

@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/context/CartContext";
+import { useInternetIdentity } from "@/hooks/useInternetIdentity";
 import { Link, useLocation } from "@tanstack/react-router";
-import { Menu, ShoppingCart, X } from "lucide-react";
+import { Menu, ShoppingCart, User, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const NAV_LINKS = [
@@ -25,9 +26,12 @@ const PRAYER_FLAGS = [
 
 export function Navbar() {
   const { totalCount } = useCart();
+  const { identity } = useInternetIdentity();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+
+  const isLoggedIn = !!identity && !identity.getPrincipal().isAnonymous();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -104,6 +108,14 @@ export function Navbar() {
 
         {/* Right actions */}
         <div className="flex items-center gap-3">
+          {isLoggedIn && (
+            <Link to="/account" data-ocid="nav.account.link">
+              <Button variant="ghost" size="icon" aria-label="My Account">
+                <User className="w-5 h-5" />
+              </Button>
+            </Link>
+          )}
+
           <Link to="/cart" data-ocid="nav.cart.link">
             <Button
               variant="ghost"

@@ -13,8 +13,6 @@ import OutCall "http-outcalls/outcall";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 
-
-
 actor {
   // Types
   type Product = {
