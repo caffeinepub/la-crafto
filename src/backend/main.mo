@@ -13,6 +13,8 @@ import OutCall "http-outcalls/outcall";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 
+
+
 actor {
   // Types
   type Product = {
@@ -62,11 +64,16 @@ actor {
     message : Text;
   };
 
+  public type UserProfile = {
+    name : Text;
+  };
+
   // Storage
   let products = Map.empty<Text, Product>();
   let carts = Map.empty<Principal, [CartItem]>();
   let orders = Map.empty<Text, Order>();
   let contactMessages = List.empty<ContactMessage>();
+  let userProfiles = Map.empty<Principal, UserProfile>();
 
   // Categories
   let categories = ["Sacred Wall Art", "3D Printed Buddhist Symbols", "Custom Name Plates", "Himalayan Inspired Decor"];
@@ -75,6 +82,28 @@ actor {
   let accessControlState = AccessControl.initState();
   var stripeConfig : ?Stripe.StripeConfiguration = null;
   include MixinAuthorization(accessControlState);
+
+  // User Profile Management
+  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view profiles");
+    };
+    userProfiles.get(caller);
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile");
+    };
+    userProfiles.get(user);
+  };
+
+  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can save profiles");
+    };
+    userProfiles.add(caller, profile);
+  };
 
   // Product CRUD
   public query func getProducts() : async [Product] {
@@ -90,6 +119,29 @@ actor {
     products.add(product.id, product);
   };
 
+  // New update product method
+  public shared ({ caller }) func updateProduct(product : Product) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
+      Runtime.trap("Unauthorized: Only admins can update products");
+    };
+
+    if (not products.containsKey(product.id)) {
+      Runtime.trap("Product with Id=" # product.id # " does not exist.");
+    };
+    products.add(product.id, product);
+  };
+
+  // New delete product method
+  public shared ({ caller }) func deleteProduct(productId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
+      Runtime.trap("Unauthorized: Only admins can delete products");
+    };
+    if (not products.containsKey(productId)) {
+      Runtime.trap("Product does not exist.");
+    };
+    products.remove(productId);
+  };
+
   // Cart
   public shared ({ caller }) func addToCart(productId : Text, quantity : Nat) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
@@ -102,7 +154,11 @@ actor {
       case (null) { [] };
       case (?items) { items };
     };
-    let existingItemIndex = cart.keys().toArray().findIndex(func(i) { cart[i].productId == productId });
+    let existingItemIndex = cart.keys().toArray().findIndex(
+      func(i) {
+        cart[i].productId == productId;
+      }
+    );
     let updatedCart = switch (existingItemIndex) {
       case (?index) {
         cart.keys().toArray().map(
@@ -138,7 +194,14 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can create orders");
     };
-    let totalAmount = items.values().toArray().foldLeft(0, func(acc, item) { acc + (item.quantity * item.product.priceInCents) });
+
+    let totalAmount = items.values().toArray().foldLeft(
+      0,
+      func(acc, item) {
+        acc + (item.quantity * item.product.priceInCents);
+      },
+    );
+
     let orderId = systemTime().toText();
     let newOrder = {
       orderId;
@@ -148,8 +211,10 @@ actor {
       customer = caller;
       checkoutSessionId = null;
     };
+
     orders.add(orderId, newOrder);
     carts.remove(caller);
+
     ?newOrder;
   };
 
@@ -169,8 +234,8 @@ actor {
     orders.values().toArray();
   };
 
-  // Contact messages
-  public shared ({ caller }) func submitContactMessage(message : ContactMessage) : async () {
+  // Contact messages - accessible to everyone including guests
+  public func submitContactMessage(message : ContactMessage) : async () {
     contactMessages.add(message);
   };
 
@@ -199,16 +264,39 @@ actor {
 
   func getStripeConfiguration() : Stripe.StripeConfiguration {
     switch (stripeConfig) {
-      case (null) { Runtime.trap("Stripe needs to be first configured") };
+      case (null) {
+        Runtime.trap("Stripe needs to be first configured");
+      };
       case (?value) { value };
     };
   };
 
-  public func getStripeSessionStatus(sessionId : Text) : async Stripe.StripeSessionStatus {
+  public shared ({ caller }) func getStripeSessionStatus(sessionId : Text) : async Stripe.StripeSessionStatus {
+    // Verify caller owns an order with this session ID or is admin
+    let hasAccess = AccessControl.isAdmin(accessControlState, caller) or (
+      orders.values().toArray().findIndex(
+        func(order) {
+          order.customer == caller and (
+            switch (order.checkoutSessionId) {
+              case (?sid) { sid == sessionId };
+              case (null) { false };
+            }
+          );
+        }
+      ) != null
+    );
+    
+    if (not hasAccess) {
+      Runtime.trap("Unauthorized: Can only check status of your own sessions");
+    };
+
     await Stripe.getSessionStatus(getStripeConfiguration(), sessionId, transform);
   };
 
   public shared ({ caller }) func createCheckoutSession(items : [Stripe.ShoppingItem], successUrl : Text, cancelUrl : Text) : async Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can create checkout sessions");
+    };
     await Stripe.createCheckoutSession(getStripeConfiguration(), caller, items, successUrl, cancelUrl, transform);
   };
 
@@ -222,6 +310,7 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
       Runtime.trap("Unauthorized: Only admins can seed products");
     };
+
     let sacredWallArt = {
       id = "sacredWallArt1";
       name = "Tibetan Thangka Print";
@@ -232,6 +321,7 @@ actor {
       story = "Inspired by traditional Tibetan Buddhist art";
       engravingAvailable = false;
     };
+
     let buddhistSymbol = {
       id = "buddhistSymbol1";
       name = "3D Printed Om Mani Padme Hum";
@@ -242,6 +332,7 @@ actor {
       story = "Represents the path to enlightenment in Buddhism";
       engravingAvailable = true;
     };
+
     let namePlate = {
       id = "namePlate1";
       name = "Custom Ladakh Name Plate";
@@ -252,6 +343,7 @@ actor {
       story = "Blending traditional and modern art";
       engravingAvailable = true;
     };
+
     let decor = {
       id = "decor1";
       name = "Himalayan Yak Figurine";
@@ -262,6 +354,7 @@ actor {
       story = "Symbolizes the enduring strength of Himalayan culture";
       engravingAvailable = false;
     };
+
     products.add(sacredWallArt.id, sacredWallArt);
     products.add(buddhistSymbol.id, buddhistSymbol);
     products.add(namePlate.id, namePlate);

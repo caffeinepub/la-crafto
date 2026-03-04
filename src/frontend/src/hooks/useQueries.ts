@@ -171,6 +171,48 @@ export function useCreateOrder() {
   });
 }
 
+export function useAddProduct() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (product: Product) => {
+      if (!actor) throw new Error("No actor");
+      return actor.addProduct(product);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
+export function useUpdateProduct() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (product: Product) => {
+      if (!actor) throw new Error("No actor");
+      return actor.updateProduct(product);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
+export function useDeleteProduct() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (productId: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteProduct(productId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+}
+
 export function useStripeSessionStatus(sessionId: string | null) {
   const { actor, isFetching } = useActor();
   return useQuery({

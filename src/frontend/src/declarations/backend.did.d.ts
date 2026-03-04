@@ -65,6 +65,7 @@ export interface TransformationOutput {
   'body' : Uint8Array,
   'headers' : Array<http_header>,
 }
+export interface UserProfile { 'name' : string }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
@@ -85,19 +86,24 @@ export interface _SERVICE {
     string
   >,
   'createOrder' : ActorMethod<[Array<OrderItem>], [] | [Order]>,
+  'deleteProduct' : ActorMethod<[string], undefined>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCart' : ActorMethod<[], Array<CartItem>>,
   'getContactMessages' : ActorMethod<[], Array<ContactMessage>>,
   'getProducts' : ActorMethod<[], Array<Product>>,
   'getStripeSessionStatus' : ActorMethod<[string], StripeSessionStatus>,
   'getUserOrders' : ActorMethod<[], Array<Order>>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'seedProducts' : ActorMethod<[], undefined>,
   'setStripeConfiguration' : ActorMethod<[StripeConfiguration], undefined>,
   'submitContactMessage' : ActorMethod<[ContactMessage], undefined>,
   'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
+  'updateProduct' : ActorMethod<[Product], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -47,6 +47,7 @@ export const Order = IDL.Record({
   'checkoutSessionId' : IDL.Opt(IDL.Text),
   'items' : IDL.Vec(OrderItem),
 });
+export const UserProfile = IDL.Record({ 'name' : IDL.Text });
 export const CartItem = IDL.Record({
   'productId' : IDL.Text,
   'quantity' : IDL.Nat,
@@ -98,15 +99,23 @@ export const idlService = IDL.Service({
       [],
     ),
   'createOrder' : IDL.Func([IDL.Vec(OrderItem)], [IDL.Opt(Order)], []),
+  'deleteProduct' : IDL.Func([IDL.Text], [], []),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCart' : IDL.Func([], [IDL.Vec(CartItem)], ['query']),
   'getContactMessages' : IDL.Func([], [IDL.Vec(ContactMessage)], []),
   'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
   'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
   'getUserOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
+      ['query'],
+    ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'seedProducts' : IDL.Func([], [], []),
   'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
   'submitContactMessage' : IDL.Func([ContactMessage], [], []),
@@ -115,6 +124,7 @@ export const idlService = IDL.Service({
       [TransformationOutput],
       ['query'],
     ),
+  'updateProduct' : IDL.Func([Product], [], []),
 });
 
 export const idlInitArgs = [];
@@ -159,6 +169,7 @@ export const idlFactory = ({ IDL }) => {
     'checkoutSessionId' : IDL.Opt(IDL.Text),
     'items' : IDL.Vec(OrderItem),
   });
+  const UserProfile = IDL.Record({ 'name' : IDL.Text });
   const CartItem = IDL.Record({ 'productId' : IDL.Text, 'quantity' : IDL.Nat });
   const ContactMessage = IDL.Record({
     'name' : IDL.Text,
@@ -204,15 +215,23 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'createOrder' : IDL.Func([IDL.Vec(OrderItem)], [IDL.Opt(Order)], []),
+    'deleteProduct' : IDL.Func([IDL.Text], [], []),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCart' : IDL.Func([], [IDL.Vec(CartItem)], ['query']),
     'getContactMessages' : IDL.Func([], [IDL.Vec(ContactMessage)], []),
     'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
     'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
     'getUserOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'seedProducts' : IDL.Func([], [], []),
     'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
     'submitContactMessage' : IDL.Func([ContactMessage], [], []),
@@ -221,6 +240,7 @@ export const idlFactory = ({ IDL }) => {
         [TransformationOutput],
         ['query'],
       ),
+    'updateProduct' : IDL.Func([Product], [], []),
   });
 };
 
