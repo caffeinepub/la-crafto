@@ -1,21 +1,22 @@
 # LA Crafto
 
 ## Current State
-Full e-commerce store with Himalayan/Buddhist-inspired design. Has products, cart, orders, contact messages, and Stripe payments. Admin panel at `/admin` requires Internet Identity login + a `CAFFEINE_ADMIN_TOKEN` environment variable to be entered manually, which is causing "Invalid token" errors for the owner.
+Full e-commerce backend with products, cart, orders, contact messages, Stripe payments, and role-based authorization. The authorization uses CAFFEINE_ADMIN_TOKEN env var to determine who becomes admin. The admin panel is inaccessible because: (1) the token isn't available to users, and (2) isCallerAdmin() traps if the user isn't registered.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Auto-admin initialization: when a logged-in (non-anonymous) user visits `/admin` and no admin has been assigned yet, that user is automatically granted admin role without needing any token input.
+- `isCallerAdmin()` that safely returns false (never traps) when caller is unregistered
 
 ### Modify
-- Backend `_initializeAccessControlWithSecret` function: ignore the provided token entirely. The first non-anonymous principal that calls this function becomes admin; all subsequent callers become regular users.
-- Admin page frontend: remove the token input form. Instead, on login, automatically call `_initializeAccessControlWithSecret("")` so the first user to log in becomes admin seamlessly.
+- `_initializeAccessControlWithSecret`: Make the first non-anonymous caller become admin automatically, WITHOUT checking any token or env var
+- `isAdmin()` in access-control: Return false (not trap) when user is not registered
+- `hasPermission()` in access-control: Return false (not trap) when user is not registered
 
 ### Remove
-- Token input panel (`AdminTokenPanel` component) -- no longer needed.
-- Dependency on `CAFFEINE_ADMIN_TOKEN` environment variable for admin access.
+- CAFFEINE_ADMIN_TOKEN env var dependency from authorization flow
 
 ## Implementation Plan
-1. Regenerate Motoko backend with auto-admin logic: `_initializeAccessControlWithSecret` ignores the token argument; first non-anonymous caller becomes admin automatically.
-2. Update `AdminPage.tsx`: after login, automatically call `_initializeAccessControlWithSecret("")`, then refetch `isAdmin`. Remove `AdminTokenPanel` component entirely.
+1. Update access-control.mo: isAdmin returns false for unregistered users; hasPermission returns false for unregistered users
+2. Update MixinAuthorization.mo: _initializeAccessControlWithSecret makes first caller admin automatically, no env var needed
+3. Update AdminPage.tsx: Remove token input form; when logged in but not admin, show a clear message explaining they need to be the first user to log in OR provide a way to re-register

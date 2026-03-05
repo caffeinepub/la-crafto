@@ -43,20 +43,6 @@ import {
   useUpdateProduct,
 } from "@/hooks/useQueries";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-// Local hook that checks admin status as soon as the actor exists,
-// without waiting for the actor's own fetch to complete.
-function useAdminStatus() {
-  const { actor } = useActor();
-  return useQuery<boolean>({
-    queryKey: ["isAdmin"],
-    queryFn: async () => {
-      if (!actor) return false;
-      return actor.isCallerAdmin();
-    },
-    enabled: !!actor,
-  });
-}
 import {
   CheckCircle2,
   CreditCard,
@@ -72,6 +58,33 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+
+// Local hook that checks admin status once the actor is ready.
+// Fixes React Query v5 bug: when `enabled: false` and no cached data,
+// `isPending` is `true`, causing an infinite spinner. We guard against
+// that by treating the actor's own fetching state as "not yet loading".
+function useAdminStatus() {
+  const { actor, isFetching: actorFetching } = useActor();
+  const query = useQuery<boolean>({
+    queryKey: ["isAdmin"],
+    queryFn: async () => {
+      if (!actor) return false;
+      try {
+        return await actor.isCallerAdmin();
+      } catch {
+        return false;
+      }
+    },
+    enabled: !!actor && !actorFetching,
+  });
+
+  // While the actor itself is still initialising, suppress the loading state
+  // so the UI never gets stuck on a spinner caused by a disabled query.
+  return {
+    ...query,
+    isLoading: actorFetching ? false : query.isLoading,
+  };
+}
 
 const CATEGORIES = [
   "Sacred Wall Art",
@@ -1085,15 +1098,16 @@ function StatsPanel() {
 }
 
 export function AdminPage() {
+  const { isFetching: actorFetching } = useActor();
   const { data: isAdmin, isLoading: adminLoading } = useAdminStatus();
   const { mutate: seedProducts, isPending: seeding } = useSeedProducts();
   const { identity, login, isLoggingIn } = useInternetIdentity();
-  useActor(); // ensure actor is initialized
   const queryClient = useQueryClient();
 
   const [tokenInput, setTokenInput] = useState("");
   const [tokenError, setTokenError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const [tokenSubmitted, setTokenSubmitted] = useState(false);
 
   const isLoggedIn = !!identity && !identity.getPrincipal().isAnonymous();
 
@@ -1114,21 +1128,36 @@ export function AdminPage() {
     setIsVerifying(true);
 
     // Reload the page with the token in the URL so useActor picks it up
+    // and calls _initializeAccessControlWithSecret(token) automatically.
     const url = new URL(window.location.href);
     url.searchParams.set("caffeineAdminToken", tokenInput.trim());
     // Invalidate actor cache so it re-initializes with the new token
     await queryClient.invalidateQueries({ queryKey: ["actor"] });
+    setTokenSubmitted(true);
     window.location.href = url.toString();
   }
 
-  if (adminLoading) {
+  // Show spinner while the actor itself is initialising OR while isAdmin is
+  // being fetched. Both conditions resolve quickly — this replaces the
+  // previous infinite-spinner bug caused by React Query v5's behaviour of
+  // keeping isPending=true for disabled queries with no cached data.
+  if (actorFetching || adminLoading) {
     return (
       <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
-        <Loader2
-          className="w-8 h-8 animate-spin"
-          style={{ color: "oklch(var(--gold))" }}
+        <div
+          className="flex flex-col items-center gap-4"
           data-ocid="admin.loading_state"
-        />
+        >
+          <Loader2
+            className="w-8 h-8 animate-spin"
+            style={{ color: "oklch(var(--gold))" }}
+          />
+          <p className="text-sm text-muted-foreground">
+            {actorFetching
+              ? "Connecting to the store…"
+              : "Checking admin access…"}
+          </p>
+        </div>
       </main>
     );
   }
@@ -1185,7 +1214,7 @@ export function AdminPage() {
     return (
       <main className="pt-32 pb-20 px-6 min-h-screen bg-background flex items-center justify-center">
         <div
-          className="p-10 rounded-sm max-w-sm w-full"
+          className="p-10 rounded-sm max-w-md w-full"
           style={{
             border: "1px solid oklch(var(--gold) / 0.3)",
             background: "oklch(var(--card))",
@@ -1202,63 +1231,134 @@ export function AdminPage() {
             />
           </div>
           <h2 className="font-serif text-2xl font-bold text-foreground mb-2 text-center">
-            Admin Token Required
+            Admin Access
           </h2>
-          <p className="text-sm text-muted-foreground mb-6 text-center">
-            Enter your admin token to access the dashboard. You can find this
-            token in your Caffeine project settings.
-          </p>
-          <form onSubmit={handleTokenSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Input
-                type="password"
-                data-ocid="admin.token.input"
-                value={tokenInput}
-                onChange={(e) => {
-                  setTokenInput(e.target.value);
-                  setTokenError("");
-                }}
-                placeholder="Paste your admin token here"
-                autoComplete="off"
-                style={{
-                  background: "oklch(var(--input))",
-                  border: tokenError
-                    ? "1px solid oklch(var(--destructive))"
-                    : "1px solid oklch(var(--border))",
-                }}
-              />
-              {tokenError && (
-                <p
-                  className="text-xs"
-                  style={{ color: "oklch(var(--destructive))" }}
-                  data-ocid="admin.token.error_state"
-                >
-                  {tokenError}
-                </p>
-              )}
-            </div>
-            <Button
-              type="submit"
-              data-ocid="admin.token.submit_button"
-              disabled={isVerifying}
-              className="w-full text-white font-semibold"
-              style={{ background: "oklch(var(--monk-maroon))" }}
+
+          {tokenSubmitted ? (
+            /* Post-submission confirmation */
+            <div
+              className="text-center space-y-4"
+              data-ocid="admin.token.success_state"
             >
-              {isVerifying ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Verifying…
-                </>
-              ) : (
-                "Access Admin Panel"
-              )}
-            </Button>
-          </form>
-          <p className="text-xs text-muted-foreground mt-4 text-center">
-            Find your token in the Caffeine dashboard under your project's
-            environment variables as{" "}
-            <span className="font-mono">CAFFEINE_ADMIN_TOKEN</span>.
-          </p>
+              <div
+                className="flex items-center gap-3 px-4 py-3 rounded-sm"
+                style={{
+                  background: "oklch(55% 0.15 145 / 0.1)",
+                  border: "1px solid oklch(55% 0.15 145 / 0.3)",
+                }}
+              >
+                <CheckCircle2
+                  className="w-5 h-5 flex-shrink-0"
+                  style={{ color: "oklch(40% 0.15 145)" }}
+                />
+                <p
+                  className="text-sm font-medium text-left"
+                  style={{ color: "oklch(35% 0.15 145)" }}
+                >
+                  Token submitted. If this was your first login with the correct
+                  token, you'll have admin access. The page is reloading…
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                If the page doesn't reload automatically,{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  style={{ color: "oklch(var(--gold))" }}
+                  onClick={() => window.location.reload()}
+                >
+                  click here to refresh
+                </button>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground mb-1 text-center">
+                Enter your admin token to claim store owner access.
+              </p>
+              <p className="text-xs text-muted-foreground mb-6 text-center">
+                The token is only required once — the{" "}
+                <strong>first person</strong> who submits the correct token
+                becomes the permanent admin.
+              </p>
+              <form onSubmit={handleTokenSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Input
+                    type="password"
+                    data-ocid="admin.token.input"
+                    value={tokenInput}
+                    onChange={(e) => {
+                      setTokenInput(e.target.value);
+                      setTokenError("");
+                    }}
+                    placeholder="Paste your admin token here"
+                    autoComplete="off"
+                    style={{
+                      background: "oklch(var(--input))",
+                      border: tokenError
+                        ? "1px solid oklch(var(--destructive))"
+                        : "1px solid oklch(var(--border))",
+                    }}
+                  />
+                  {tokenError && (
+                    <p
+                      className="text-xs"
+                      style={{ color: "oklch(var(--destructive))" }}
+                      data-ocid="admin.token.error_state"
+                    >
+                      {tokenError}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="submit"
+                  data-ocid="admin.token.submit_button"
+                  disabled={isVerifying}
+                  className="w-full text-white font-semibold"
+                  style={{ background: "oklch(var(--monk-maroon))" }}
+                >
+                  {isVerifying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Verifying…
+                    </>
+                  ) : (
+                    "Claim Admin Access"
+                  )}
+                </Button>
+              </form>
+
+              {/* How-to-find-token guidance */}
+              <div
+                className="mt-5 p-4 rounded-sm space-y-2"
+                style={{
+                  background: "oklch(var(--muted))",
+                  border: "1px solid oklch(var(--border))",
+                }}
+              >
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  How to find your token
+                </p>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Open the Caffeine dashboard and select your project.</li>
+                  <li>
+                    Go to <strong>Settings → Environment Variables</strong>.
+                  </li>
+                  <li>
+                    Copy the value of{" "}
+                    <span className="font-mono bg-background px-1 py-0.5 rounded text-foreground">
+                      CAFFEINE_ADMIN_TOKEN
+                    </span>
+                    .
+                  </li>
+                  <li>
+                    Paste it in the field above and click Claim Admin Access.
+                  </li>
+                </ol>
+              </div>
+            </>
+          )}
         </div>
       </main>
     );
